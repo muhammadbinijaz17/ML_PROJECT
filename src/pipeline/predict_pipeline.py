@@ -1,25 +1,75 @@
+import os
 import sys
 import pandas as pd
 from src.exception import CustomException
 from src.utils import load_object
 
 
+def _patch_sklearn_compat(preprocessor):
+    """
+    Ensures compatibility between older pickled pipelines and newer scikit-learn versions (e.g. >= 1.4/1.9).
+    Prevents:
+      - AttributeError: 'SimpleImputer' object has no attribute '_fill_dtype'
+      - AttributeError: 'Pipeline' object has no attribute 'transform_input'
+    """
+    try:
+        transformers = getattr(preprocessor, "transformers_", []) or getattr(preprocessor, "transformers", [])
+        for item in transformers:
+            if len(item) >= 2:
+                trans = item[1]
+                if hasattr(trans, "named_steps"):
+                    for step_name, step in trans.named_steps.items():
+                        if hasattr(step, "_fit_dtype") and not hasattr(step, "_fill_dtype"):
+                            step._fill_dtype = step._fit_dtype
+                        if not hasattr(step, "transform_input"):
+                            step.transform_input = ()
+                if hasattr(trans, "_fit_dtype") and not hasattr(trans, "_fill_dtype"):
+                    trans._fill_dtype = trans._fit_dtype
+                if not hasattr(trans, "transform_input"):
+                    trans.transform_input = ()
+    except Exception:
+        pass
+    return preprocessor
+
+
 class PredictPipeline:
     def __init__(self):
         pass
+
     def predict(self, features):
         try:
-            model_path = "artifacts/model.pkl"
-            preprocessor_path = "artifacts/preprocessor.pkl"
+            base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            model_path = os.path.join(base_dir, "artifacts", "model.pkl")
+            preprocessor_path = os.path.join(base_dir, "artifacts", "preprocessor.pkl")
+
+            if not os.path.exists(model_path):
+                model_path = os.path.join("artifacts", "model.pkl")
+            if not os.path.exists(preprocessor_path):
+                preprocessor_path = os.path.join("artifacts", "preprocessor.pkl")
+
             model = load_object(file_path=model_path)
             preprocessor = load_object(file_path=preprocessor_path)
+
+            preprocessor = _patch_sklearn_compat(preprocessor)
+
             data_scaled = preprocessor.transform(features)
             preds = model.predict(data_scaled)
             return preds
         except Exception as e:
             raise CustomException(e, sys)
+
+
 class CustomData:
-    def __init__(self, gender: str,race_ethnicity: int , parental_level_of_education: str,lunch: str,test_preparation_course: str,reading_score: int,writing_score: int):
+    def __init__(
+        self,
+        gender: str,
+        race_ethnicity: str,
+        parental_level_of_education: str,
+        lunch: str,
+        test_preparation_course: str,
+        reading_score: float,
+        writing_score: float
+    ):
         self.gender = gender
         self.race_ethnicity = race_ethnicity
         self.parental_level_of_education = parental_level_of_education
@@ -42,4 +92,4 @@ class CustomData:
             return pd.DataFrame(custom_data_input_dict)
 
         except Exception as e:
-            raise CustomException(e, sys)
+            raise CustomException(e, sys)

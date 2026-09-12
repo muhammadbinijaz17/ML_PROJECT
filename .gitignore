@@ -216,3 +216,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# CatBoost & local logs
+catboost_info/
+logs/
+
